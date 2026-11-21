@@ -1,79 +1,87 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import {vehicle} from './vehicles.js';
+import {pedestrian} from './peds.js';
+import {story,beginMission} from './missions.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+const scenes={
+  chase:{x:309,y:730,zoom:1.55,hour:17.8,frameX:251,frameY:679},
+  street:{x:411,y:574,zoom:2.08,hour:15.3,frameX:423,frameY:557},
+  night:{x:510,y:1052,zoom:1.85,hour:23.2,frameX:557,frameY:1050},
+  mission:{x:300,y:2190,zoom:1.58,hour:17,frameX:290,frameY:2211}
+};
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+function add(sim,x,y,a,type,kind='parked') {
+  const car=vehicle(x,y,a,type,kind);
+  car.stunt=true;
+  sim.cars.push(car);
+  return car;
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
+export function stage(sim,name) {
+  const shot=scenes[name];
+  if(!shot) return false;
+  sim.shot=shot;
+  sim.mode='playing';
+  sim.time=name==='chase'?17.4:28.6;
+  sim.cars=sim.cars.filter(c=>Math.hypot(c.x-shot.x,c.y-shot.y)>165);
+  const p=sim.player;
+  p.x=shot.x;
+  p.y=shot.y;
+  p.a=-Math.PI/2;
+  p.phase=1.3;
+  p.unlock=2;
+  p.weapon=1;
+  p.money=2480;
+  p.armor=38;
+  if(name==='chase') {
+    p.car=add(sim,p.x,p.y,-1.45,0,'player');
+    p.car.speed=173;
+    add(sim,318,759,-1.88,5,'cop');
+    add(sim,280,828,-1.49,5,'cop');
+    add(sim,364,771,2.86,5,'cop');
+    add(sim,286,652,1.57,1);
+    add(sim,405,793,.05,3);
+    add(sim,451,767,3.14,2);
+    for(let i=0;i<13;i++) {
+      sim.effects.mark(316+i*.6,741+i*3,-1.47);
+      sim.effects.mark(325+i*.6,741+i*3,-1.47);
     }
+    sim.effects.burst(320,746,'#ffe098',34,.63);
+    sim.effects.burst(309,756,'#d4d8d5',14,.72);
+    sim.effects.update(.12);
+    sim.dispatch.heat=111;
+    sim.dispatch.stars=3;
+    p.hp=78;
+    beginMission(sim,story[3]);
+    sim.missions.left=49;
+    sim.missions.dialog=null;
+  } else if(name==='street') {
+    p.a=.22;
+    add(sim,371,531,0,1);
+    add(sim,454,507,Math.PI,3);
+    add(sim,519,551,Math.PI,6);
+    add(sim,313,634,1.57,2);
+    add(sim,568,649,1.57,4);
+    for(let i=0;i<19;i++) {
+      sim.people.push(pedestrian(344+i*10,568+Math.sin(i*1.7)*8,i%3?0:Math.PI,300+i));
+    }
+    for(let i=0;i<8;i++) sim.people.push(pedestrian(350+i*20,727+Math.sin(i)*5,Math.PI,360+i));
+  } else if(name==='night') {
+    p.a=0;
+    p.car=add(sim,p.x,p.y,0,3,'player');
+    p.car.speed=112;
+    add(sim,601,1023,Math.PI,1);
+    add(sim,572,1110,Math.PI/2,5,'cop');
+    add(sim,684,1053,0,6);
+    add(sim,558,950,Math.PI/2,0);
+    sim.dispatch.stars=1;
+  } else {
+    p.a=Math.PI/2;
+    beginMission(sim,story[1]);
+    sim.missions.left=72;
+    add(sim,316,2162,1.57,2);
+    add(sim,366,2086,0,4);
+    add(sim,530,2070,Math.PI,1);
   }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
-  }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  Object.assign(sim.camera,{x:shot.frameX,y:shot.frameY,zoom:shot.zoom});
+  return true;
 }

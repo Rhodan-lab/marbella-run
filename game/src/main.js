@@ -1,134 +1,186 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-import { stageShot } from './shots.js';
+import {grid,west} from './config.js';
+import {buildCity,drawGround,drawArchitecture} from './city.js';
+import {vehicle,drawCar,updateDamage,collideCars} from './vehicles.js';
+import {seedTraffic,updateTraffic} from './traffic.js';
+import {seedPeds,updatePeds,drawPerson} from './peds.js';
+import {makePlayer,updatePlayer} from './player.js';
+import {makeDispatch,clearDispatch,updatePolice} from './police.js';
+import {fire,updateCombat,drawCombat} from './combat.js';
+import {makeMissionState,failMission,updateMissions,drawObjectives} from './missions.js';
+import {loadCareer,saveCareer} from './save.js';
+import {bindInput} from './input.js';
+import {makeCamera} from './camera.js';
+import {createEffects} from './particles.js';
+import {createAudio} from './audio.js';
+import {atmosphere,drawTint,drawLights,drawRain} from './weather.js';
+import {drawHud,makeMap} from './hud.js';
+import {drawTitle,drawOverlay} from './menus.js';
+import {stage} from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
+const timestep=1/60;
 
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
-
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
-
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
+export function createGame(input) {
+  const city=buildCity();
+  const saved=loadCareer();
+  const sim={
+    city,input,time:0,mode:'title',camera:makeCamera(),effects:createEffects(),audio:createAudio(),
+    player:makePlayer(saved),missions:makeMissionState(saved),dispatch:makeDispatch(),
+    cars:seedTraffic(),people:seedPeds(),bullets:[],pickups:[],muted:false,
+    raise(amount) {
+      this.dispatch.heat=Math.min(190,this.dispatch.heat+amount);
+      this.dispatch.seen=0;
+    },
+    fire(...args) {
+      fire(this,...args);
+    },
+    finish(mode) {
+      if(this.mode!=='playing') return;
+      this.mode=mode;
+      failMission(this);
+      this.player.money=Math.max(0,this.player.money-100);
+      saveCareer(this);
+    }
+  };
+  sim.cars.push(vehicle(315,573,Math.PI/2));
+  sim.cars.push(vehicle(810,2630,0,3));
+  for(let i=0;i<18;i++) {
+    sim.pickups.push({x:west+grid*(i%9)+52,y:grid*(i*7%12)+51,kind:i%2?'armor':'health',next:0});
   }
+  sim.weather=atmosphere(sim);
+  return sim;
 }
 
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
+function recover(sim) {
+  sim.player=makePlayer(sim.player);
+  sim.player.armor=0;
+  clearDispatch(sim);
+  sim.bullets=[];
+  sim.mode='playing';
+  sim.camera.x=sim.player.x;
+  sim.camera.y=sim.player.y;
+  if(!sim.cars.some(c=>!c.dead&&Math.hypot(c.x-315,c.y-573)<42)) sim.cars.push(vehicle(315,573,Math.PI/2));
 }
 
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
+export function stepGame(sim,dt) {
+  if(sim.shot) return;
+  const input=sim.input;
+  if(input.tap('KeyM')) sim.muted=sim.audio.toggle();
+  if(sim.mode==='title') {
+    if(input.tap('Enter')||input.tap('Mouse')) {
+      sim.audio.start();
+      sim.mode='playing';
+    }
+  } else if(sim.mode==='paused') {
+    if(input.tap('Escape')) sim.mode='playing';
+    else if(input.tap('KeyQ')) {
+      saveCareer(sim);
+      sim.mode='title';
+    }
+  } else if(sim.mode==='busted'||sim.mode==='wasted') {
+    if(input.tap('Enter')) recover(sim);
+  } else if(input.tap('Escape')) {
+    sim.mode='paused';
+  } else {
+    sim.time+=dt;
+    sim.weather=atmosphere(sim);
+    updatePlayer(sim,dt);
+    for(const car of sim.cars) {
+      updateTraffic(car,sim,dt);
+      updateDamage(car,dt,sim.effects,sim.audio);
+    }
+    if(collideCars(sim.cars,sim.effects,sim.player)) sim.raise(4);
+    if(sim.player.car) {
+      sim.player.x=sim.player.car.x;
+      sim.player.y=sim.player.car.y;
+    }
+    updatePeds(sim,dt);
+    updatePolice(sim,dt);
+    updateCombat(sim,dt);
+    if(sim.mode==='playing') updateMissions(sim,dt);
+    sim.effects.update(dt);
+    sim.camera.update(sim.player,dt);
+    if(sim.player.hp<=0) sim.finish('wasted');
   }
-  requestAnimationFrame(paint);
+  input.clear();
 }
 
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
+export function paint(c,sim,map,w,h) {
+  if(sim.mode==='title') {
+    drawTitle(c,w,h,sim);
+    return;
   }
+  const camera=sim.camera;
+  const v=camera.frame();
+  const {night,rain}=sim.weather;
+  const visible=actor=>actor.x>v.left-60&&actor.x<v.right+60&&actor.y>v.top-60&&actor.y<v.bottom+60;
+  c.save();
+  camera.apply(c);
+  drawGround(c,sim.city,v,sim.time,night);
+  sim.effects.ground(c);
+  drawArchitecture(c,sim.city,v,night);
+  drawTint(c,v,sim.weather);
+  drawLights(c,sim.cars,v,night,sim.time);
+  drawObjectives(c,sim);
+  for(const car of sim.cars) if(visible(car)) drawCar(c,car,sim.time);
+  for(const p of sim.people) if(visible(p)) drawPerson(c,p);
+  if(!sim.player.car) drawPerson(c,sim.player,true);
+  drawCombat(c,sim);
+  sim.effects.draw(c);
+  c.restore();
+  drawRain(c,w,h,sim.time,rain);
+  drawHud(c,sim,map,w,h);
+  if(sim.mode!=='playing') drawOverlay(c,w,h,sim.mode,sim);
+}
 
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
+function boot() {
+  const canvas=document.querySelector('#game');
+  const c=canvas.getContext('2d',{alpha:false});
+  const sim=createGame(bindInput(canvas));
+  const shot=new URLSearchParams(location.search).get('shot');
+  stage(sim,shot);
+  sim.weather=atmosphere(sim);
+  const map=makeMap(sim.city);
+  let width=1280;
+  let height=720;
+  let scale=1;
+  function resize() {
+    canvas.width=window.innerWidth;
+    canvas.height=window.innerHeight;
+    scale=Math.min(canvas.width/960,canvas.height/600);
+    width=canvas.width/scale;
+    height=canvas.height/scale;
+    sim.camera.width=width;
+    sim.camera.height=height;
   }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
+  window.addEventListener('resize',resize);
+  window.addEventListener('pagehide',()=>saveCareer(sim));
+  resize();
+  const rawInput=sim.input;
+  Object.defineProperty(sim.input,'scaledMouse',{get:()=>({x:rawInput.mouse.x/scale,y:rawInput.mouse.y/scale})});
+  let last=performance.now();
+  let carry=0;
+  let scheduled;
   function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
+    carry+=Math.min(.1,Math.max(0,(now-last)/1000));
+    last=now;
+    while(carry>=timestep) {
+      stepGame(sim,timestep);
+      carry-=timestep;
     }
-    renderer.draw(world.state, screen, best);
+    if(!document.hidden) {
+      c.setTransform(scale,0,0,scale,0,0);
+      paint(c,sim,map,width,height);
+    }
+    sim.audio.update(sim,sim.mode==='playing');
+    scheduled=document.hidden?setTimeout(()=>frame(performance.now()),50):requestAnimationFrame(frame);
   }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
+  document.addEventListener('visibilitychange',()=>{
+    clearTimeout(scheduled);
+    cancelAnimationFrame(scheduled);
+    last=performance.now();
+    frame(last);
   });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
+  frame(last);
 }
 
-if (shot) runShot(shot);
-else runGame();
+if(typeof document!=='undefined') boot();

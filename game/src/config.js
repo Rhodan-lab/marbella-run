@@ -1,61 +1,38 @@
-// Every tuning number and colour in one place. The playfield is a fixed 1280x720 logical area;
-// the renderer scales it to the window, so no rule below depends on the screen size.
-
-export const FIELD = { width: 1280, height: 720, groundY: 664 };
-
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
-export const STEP = 1 / 60;
-
-export const PLAYER = {
-  width: 72,
-  height: 24,
-  speed: 560,
-  invulnerable: 1.5,
-};
-
-export const LIVES = 3;
-
-export const BLOCK = {
-  minWidth: 40,
-  maxWidth: 110,
-  height: 36,
-  speed: 240,
-  speedPerLevel: 30,
-  speedJitter: 90,
-  interval: 0.55,
-  intervalScale: 0.88,
-  minInterval: 0.14,
-  dodgePoints: 1,
-};
-
-export const COIN = {
-  size: 24,
-  speed: 190,
-  speedPerLevel: 14,
-  interval: 1.4,
-  intervalJitter: 0.8,
-  points: 10,
-};
-
-/** Seconds of play per level, and the last level: speeds and spawn rates stop growing there. */
-export const LEVEL = { seconds: 12, max: 12 };
-
-/** How many falling things can exist at once; the pool is allocated once, at boot. */
-export const POOL_SIZE = 64;
-
-export const PALETTE = {
-  backdrop: '#11141b',
-  sky: '#1b1f2a',
-  ground: '#2a3040',
-  player: '#4fc3f7',
-  block: '#e5534b',
-  coin: '#f2c94c',
-  panel: '#252b38',
-  text: '#eef1f5',
-  muted: '#8b93a3',
-};
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-
-/** Where the best score is kept between visits (this browser only). */
-export const BEST_KEY = 'block-dodger.best';
+export const grid = 260;
+export const west = 300;
+export const east = west + 10 * grid;
+export const south = 12 * grid;
+export const road = 86;
+export const districts = ['Mirador Beach', 'Caleta Market', 'Glass Mile', 'Crown Heights', 'Salt Docks', 'Cinder Flats'];
+export const palette = ['#e5987e','#eebc86','#e8d3a6','#91beb1','#aab7cf','#cf9ba9'];
+export const distance = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
+export const clamp = (n,lo,hi) => Math.min(hi,Math.max(lo,n));
+export const mix = (a,b,t) => a+(b-a)*t;
+export const turn = (a,b) => Math.atan2(Math.sin(b-a),Math.cos(b-a));
+export function random(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(1664525,state)+1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+export function districtAt(x,y) {
+  return districts[Math.min(2, Math.max(0,Math.floor(y/(south/3))))*2 + Number(x > west+5*grid)];
+}
+export function rect(ctx,color,x,y,w,h) {
+  ctx.fillStyle=color;
+  ctx.fillRect(x,y,w,h);
+}
+export function polygon(ctx,color,points) {
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  points.forEach(([x,y],i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+  ctx.closePath();
+  ctx.fill();
+}
+export function disk(ctx,color,x,y,r) {
+  ctx.fillStyle=color;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+}
