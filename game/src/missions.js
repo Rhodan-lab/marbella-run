@@ -1,6 +1,8 @@
 import {distance,disk,rect,polygon} from './config.js';
 import {saveCareer} from './save.js';
 
+const MISSIONS_REV='Clearer timeout guidance for the first two missions';
+
 export const cast=[
   {name:'INES VEGA',role:'THE FIXER',skin:'#c58c76',hair:'#353049',coat:'#ea7b86'},
   {name:'TOMAS REY',role:'THE MECHANIC',skin:'#b77d5c',hair:'#4b3841',coat:'#78c9bb'},
@@ -83,11 +85,13 @@ export function beginMission(sim,job,side=false) {
 export function failMission(sim) {
   const m=sim.missions;
   if(!m.active) return;
-  m.banner={title:'JOB FAILED',failed:true,job:m.active,side:m.side,left:0};
+  const title=m.active===story[0]?'TIME UP / Drive through both drops':
+    m.active===story[1]?'TIME UP / Collect ledger on foot, then deliver':'JOB FAILED';
+  m.banner={title,failed:true,job:m.active,side:m.side,left:0};
   m.active=null;
 }
 
-function finishMission(sim) {
+function completeMission(sim) {
   const m=sim.missions;
   const job=m.active;
   sim.player.money+=job.pay;
@@ -132,7 +136,7 @@ export function updateMissions(sim,dt) {
   if(target.mode==='car'&&!p.car||target.mode==='foot'&&p.car) return;
   if(target.mode==='heat') sim.raise(58);
   sim.effects.burst(target.x,target.y,'#ffe39d',18);
-  if(++m.step===m.active.steps.length) finishMission(sim);
+  if(++m.step===m.active.steps.length) completeMission(sim);
   else sim.audio.hit('tap');
 }
 
