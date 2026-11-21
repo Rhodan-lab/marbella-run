@@ -53,6 +53,7 @@ export function drive(car,gas,steering,brake,dt,city,effects) {
 }
 
 export function collideCars(cars,effects,player) {
+  let playerCollision=false;
   for(let i=0;i<cars.length;i++) {
     const a=cars[i];
     if(a.dead) continue;
@@ -81,11 +82,11 @@ export function collideCars(cars,effects,player) {
         if(!a.stunt) a.hp-=push*.085;
         if(!b.stunt) b.hp-=push*.085;
         effects.burst((a.x+b.x)/2,(a.y+b.y)/2,'#ffbb74',7);
-        if(player.car===a||player.car===b) return true;
+        if(player.car===a||player.car===b) playerCollision=true;
       }
     }
   }
-  return false;
+  return playerCollision;
 }
 
 export function updateDamage(car,dt,effects,audio) {

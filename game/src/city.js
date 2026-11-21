@@ -63,7 +63,7 @@ function visible(view,x,y,w,h) {
 }
 
 function waterfront(c,v,time) {
-  rect(c,'#157e91',v.left,v.top,300-v.left,v.bottom-v.top);
+  rect(c,'#157e91',v.left,v.top,257-v.left,v.bottom-v.top);
   rect(c,'#248fa0',55,v.top,85,v.bottom-v.top);
   rect(c,'#50b5aa',96,v.top,43,v.bottom-v.top);
   polygon(c,'#e8bc82',[[128,v.top],[254,v.top],[254,v.bottom],[128,v.bottom]]);

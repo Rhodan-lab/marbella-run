@@ -43,6 +43,8 @@ export function createGame(input) {
   };
   sim.cars.push(vehicle(315,573,Math.PI/2));
   sim.cars.push(vehicle(810,2630,0,3));
+  sim.cars.push(vehicle(1100,1072,0,4));
+  sim.cars.push(vehicle(840,812,0,3));
   for(let i=0;i<18;i++) {
     sim.pickups.push({x:west+grid*(i%9)+52,y:grid*(i*7%12)+51,kind:i%2?'armor':'health',next:0});
   }

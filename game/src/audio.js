@@ -19,7 +19,7 @@ export function createAudio() {
     if(!Audio) return;
     context=new Audio();
     master=context.createGain();
-    master.gain.value=.35;
+    master.gain.value=mute?0:.35;
     master.connect(context.destination);
     motor=context.createOscillator();
     motor.type='sawtooth';
